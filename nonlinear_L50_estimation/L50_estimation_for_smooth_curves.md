@@ -8,7 +8,7 @@ output:
 ---
 
 
--
+
 This tutorial will focus on how to estimate L50 values for observational fisheries length-at-maturity data when the relationship between length and maturity is more complex than a logistic curve (so simple linear methods of calculating L50 values don't work). 
 L50 values, in fisheries ecology, correspond to the length (or age) at which 50% of the individuals in a population have gone through some transition (e.g. have become sexually mature, or are producing eggs, or have undergone a sex transition). 
 
@@ -79,7 +79,7 @@ raw_data_plot = ggplot(dat, aes(x = length, y = condition))+
 raw_data_plot
 ```
 
-![](L50_estimation_for_smooth_curves_files/figure-html/plotraw-1.png)<!-- -->
+![](figures/L50-plotraw-1.png)<!-- -->
 
 
 In logistic regression, the probability of some `condition`, $p$, is modelled with a generalized linear model (GLM) with a binomial distribution for`condition` being in one state or another, and the logit-transformed value $logit(p) = ln(p/(1-p))$ being modelled as a linear combination of the variables (**x**) of interest: 
@@ -172,7 +172,7 @@ linear_l50_plot = raw_data_plot +
 linear_l50_plot
 ```
 
-![](L50_estimation_for_smooth_curves_files/figure-html/plotlinear-1.png)<!-- -->
+![](figures/L50-plotlinear-1.png)<!-- -->
 
 
 Note that this does a really awful job of predicting the L50 values.
@@ -199,7 +199,7 @@ quad_l50_plot = raw_data_plot +
 quad_l50_plot
 ```
 
-![](L50_estimation_for_smooth_curves_files/figure-html/quad-1.png)<!-- -->
+![](figures/L50-quad-1.png)<!-- -->
 
 This works a fair bit better, but it's still not doing a great job for, e.g. `x=3, y=3`, and going by the blue lines, it seems to be because the estimated logistic curve doesn't capture the true size-at-maturity curve. 
 I could add a quadratic term for length, or a length-location interaction term, but in that case, I couldn't use equation (1) to find the L50 values. 
@@ -225,7 +225,7 @@ gam_plot = raw_data_plot +
 gam_plot
 ```
 
-![](L50_estimation_for_smooth_curves_files/figure-html/gam_plot-1.png)<!-- -->
+![](figures/L50-gam_plot-1.png)<!-- -->
 
 However, now how do we get the L50 values for this model? 
 It's conceptually similar to how I did it for the linear model;
@@ -321,7 +321,7 @@ gam_l50_plot = raw_data_plot +
 gam_l50_plot
 ```
 
-![](L50_estimation_for_smooth_curves_files/figure-html/plotgam-1.png)<!-- -->
+![](figures/L50-plotgam-1.png)<!-- -->
 
 And we can see that all of the estimates have converged properly, as the optimal criteria is very close to zero for all L50 values:
 
@@ -398,7 +398,7 @@ gam_l50_sd_plot = raw_data_plot +
 gam_l50_sd_plot
 ```
 
-![](L50_estimation_for_smooth_curves_files/figure-html/plotgam_sd-1.png)<!-- -->
+![](figures/L50-plotgam_sd-1.png)<!-- -->
 
 
 It's likely also possible to calculate the standard deviations with a bit less computing time, using something like the delta method, but I don't have time to dig into the math on that here. 
