@@ -7,16 +7,15 @@ output:
       keep_md: true
 ---
 
-```{r setup, include=FALSE,message=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = FALSE)
-```
+
 -
 This tutorial will focus on how to estimate L50 values for observational fisheries length-at-maturity data when the relationship between length and maturity is more complex than a logistic curve (so simple linear methods of calculating L50 values don't work). 
 L50 values, in fisheries ecology, correspond to the length (or age) at which 50% of the individuals in a population have gone through some transition (e.g. have become sexually mature, or are producing eggs, or have undergone a sex transition). 
 
 For this tutorial, I'll use the following packages:
 
-```{r packages, include=TRUE, results ='hide', message=FALSE, warning=FALSE}
+
+```r
 library(dplyr)   #for working with data frames
 library(tidyr)   #for working with data frames
 library(ggplot2) #for generating plots
@@ -27,7 +26,8 @@ set.seed(1)
 
 I'll use the following generated data set. I'll be assuming that we have survey values sampled from a spatial grid (indexed by `x` and `y`) and that length at maturity follows a non-linear function of length, with the intercept depending on `x` and `y`: 
 
-```{r data, include=TRUE}
+
+```r
 dat = crossing(x = 1:5,  #x and y occur across a 5x5 grid
                y = 1:5, 
                #2 mm length bins, spanning from 10 to 120 mm.
@@ -45,14 +45,28 @@ dat = crossing(x = 1:5,  #x and y occur across a 5x5 grid
 
 This is what the data looks like:
 
-```{r showdata}
+
+```r
 head(dat)
+```
+
+```
+## # A tibble: 6 x 7
+##       x     y length   rep prob_logit         prob condition
+##   <int> <int>  <dbl> <int>      <dbl>        <dbl>     <int>
+## 1     1     1     10     1      -16.5 0.0000000683         0
+## 2     1     1     10     2      -16.5 0.0000000683         0
+## 3     1     1     10     3      -16.5 0.0000000683         0
+## 4     1     1     10     4      -16.5 0.0000000683         0
+## 5     1     1     10     5      -16.5 0.0000000683         0
+## 6     1     1     10     6      -16.5 0.0000000683         0
 ```
 
 
 And here's a plot of the true length-at-maturity curves, with points showing raw data, the black curve indicating the true probability at length for a given `x,y` combination, and the horizontal dashed line indicating the L50 :
 
-```{r plotraw}
+
+```r
 raw_data_plot = ggplot(dat, aes(x = length, y = condition))+ 
   facet_grid(y~x, labeller = label_both) + 
   geom_point(size=0.1)+
@@ -65,6 +79,8 @@ raw_data_plot = ggplot(dat, aes(x = length, y = condition))+
 raw_data_plot
 ```
 
+![](L50_estimation_for_smooth_curves_files/figure-html/plotraw-1.png)<!-- -->
+
 
 In logistic regression, the probability of some `condition`, $p$, is modelled with a generalized linear model (GLM) with a binomial distribution for`condition` being in one state or another, and the logit-transformed value $logit(p) = ln(p/(1-p))$ being modelled as a linear combination of the variables (**x**) of interest: 
 
@@ -73,7 +89,8 @@ $logit(p) = \beta_0 + \beta_1*x_1 + \beta_2*x_2 + ...$
 where $\beta_0$ corresponds to an intercept, and $\beta_1$, $\beta_2$, etc. correspond to slopes for each variable of interest. In **R** code, this would be described by:
 
 
-```{r eval=FALSE,echo=T}
+
+```r
 glm(condition ~ 1 + x_1 + x_2 + ..., data = dat, family=binomial(link = "logit"))
 ```
 
@@ -85,14 +102,16 @@ $logit(p) = \beta_0 + \beta_{length}*L + \beta_1*x_1 + \beta_2*x_2 + ...$
 
 And the corresponding **R** model is: 
 
-```{r eval=FALSE,echo=T}
+
+```r
 glm(condition ~ 1 + length + x_1 + x_2 + ..., data = dat, family=binomial(link = "logit"))
 ```
 
 
 For the sample data, the linear R model would be: 
 
-```{r eval=TRUE,echo=T}
+
+```r
 l_mat_linear = glm(condition ~ 1 + length + x + y, data = dat, family=binomial(link = "logit"))
 ```
 
@@ -109,7 +128,8 @@ This can be found in R pretty simply.
 First we'll create new data at the values we want to predict at. 
 We have to create a dummy value of length to create predictions at, but we won't be using this value to calculate L50 values here:
 
-```{r linear_L50_1, echo=TRUE, eval=TRUE}
+
+```r
 dat_pred = crossing(x = unique(dat$x),
                     y = unique(dat$y),
                     length = 0, #dummy value of length. Set to zero so it will not affect the predictions
@@ -120,14 +140,16 @@ dat_pred = crossing(x = unique(dat$x),
 Next we'll generate a *model matrix* from this, that creates the appropriate variables
 in the right order
 
-```{r linear_L50_2, echo=TRUE, eval=TRUE}
+
+```r
 linear_model_matrix = model.matrix(l_mat_linear$formula, dat_pred)
 ```
 
 Now we can multiply this by the coefficient values from the model, divided by the coefficient value for length:
 
 
-```{r linear_L50_3, echo=TRUE, eval=TRUE}
+
+```r
 linear_coef = coef(l_mat_linear)
 
 L50_numerator = linear_model_matrix%*%linear_coef #matrix multiplication of 
@@ -140,8 +162,8 @@ dat_pred$L50_linear = -L50_numerator/L50_denominator
 Let's see how well this does at estimating the true L50, by adding the predicted curve as a blue line, and the L50 values as a red vertical line to the previous plot. 
 
 
-```{r plotlinear}
 
+```r
 linear_l50_plot = raw_data_plot +
   geom_line(aes(y=fitted(l_mat_linear)),color="blue")+
   geom_vline(data =dat_pred, aes(xintercept = L50_linear), linetype=1, color="red")
@@ -150,12 +172,15 @@ linear_l50_plot = raw_data_plot +
 linear_l50_plot
 ```
 
+![](L50_estimation_for_smooth_curves_files/figure-html/plotlinear-1.png)<!-- -->
+
 
 Note that this does a really awful job of predicting the L50 values.
 Part of this is that we didn't model the quadratic relationship with space; 
 we can add that in easily:
 
-```{r quad, eval=TRUE,echo=T}
+
+```r
 l_mat_quad = glm(condition ~ 1 + length + x +I(x^2) + y + I(y^2), data = dat, family=binomial(link = "logit"))
 
 quad_model_matrix = model.matrix(l_mat_quad$formula, dat_pred)
@@ -174,6 +199,8 @@ quad_l50_plot = raw_data_plot +
 quad_l50_plot
 ```
 
+![](L50_estimation_for_smooth_curves_files/figure-html/quad-1.png)<!-- -->
+
 This works a fair bit better, but it's still not doing a great job for, e.g. `x=3, y=3`, and going by the blue lines, it seems to be because the estimated logistic curve doesn't capture the true size-at-maturity curve. 
 I could add a quadratic term for length, or a length-location interaction term, but in that case, I couldn't use equation (1) to find the L50 values. 
 In fact, equation (1) only works when we assume that the relationship between length and logit-probability is linear. When we move into the realm of nonlinear relationships, we have to find L50 using nonlinear solvers. 
@@ -182,19 +209,23 @@ In fact, equation (1) only works when we assume that the relationship between le
 First, let's fit this model using a GAM:
 
 
-```{r gam1, eval=TRUE,echo=T}
+
+```r
 l_mat_gam = gam(condition ~ 1 + s(length) +s(x, y, k=5), data = dat, family=binomial(link = "logit"))
 ```
 
 Here the term `s(length)` denotes a smoother for length, and the term `s(x,y)` denotes a 2D smoother for x and y. 
 This model does a much better job of capturing the length-at-maturity relationship: 
 
-```{r gam_plot, eval=TRUE,echo=T}
+
+```r
 gam_plot = raw_data_plot +
   geom_line(aes(y=fitted(l_mat_gam)),color="blue")
 
 gam_plot
 ```
+
+![](L50_estimation_for_smooth_curves_files/figure-html/gam_plot-1.png)<!-- -->
 
 However, now how do we get the L50 values for this model? 
 It's conceptually similar to how I did it for the linear model;
@@ -212,7 +243,8 @@ However, R has good nonlinear optimizer codes that can easily solve this type of
 I'll first define a function that can take a length, a vector of coefficients, and a data frame of covariates that we want predictions over, and returns the square of the link function for this data. I want the square value as the optimization functions in R assume I am minimizing a function, and the square of the link function will always have a minimum at zero (where equation (2) is satisified)[^lpmat]. 
 
 
-```{r gam_l50_1, eval=TRUE,echo=T}
+
+```r
 get_link_sqrt = function(length, coefs, covar, model){
   covar$length = length
   #this returns the linear predictors corresponding to the new data. 
@@ -232,12 +264,22 @@ We can now use optimize to solve this equation for a single row of `dat_pred`.
 We have to set the interval that we want to optimize over (basically, the values we consider to be valid L50 values). Here we use 0 to 150. 
 
 
-```{r gam_l50_2, eval=TRUE,echo=T}
+
+```r
 test_l50 = optimize(get_link_sqrt,interval = c(0,150),
                     coefs = coef(l_mat_gam),
                     covar = dat_pred[1,], 
                     model = l_mat_gam)
 print(test_l50)
+```
+
+```
+## $minimum
+## [1] 102.3863
+## 
+## $objective
+##           [,1]
+## 1 2.003677e-16
 ```
 
 This returns a minimum value (i.e. the L50) and an objective value.
@@ -246,7 +288,8 @@ If the function is properly minimizing, this will be very close to zero.
 
 Now to get the L50 values for all sets of covariates, we can loop over the predicted data[^apply]:
 
-```{r gam_l50_3, eval=TRUE,echo=T}
+
+```r
 dat_pred$L50_gam = 0 #creating an empty value here
 #we also want to keep track of the objective function. If this deviates away
 #from 0, it's a sign that the optimizer didn't,well, optimize.
@@ -268,7 +311,8 @@ for(i in 1:nrow(dat_pred)){
 We can plot this to see how well it does:
 
 
-```{r plotgam}
+
+```r
 gam_l50_plot = raw_data_plot +
   geom_line(aes(y=fitted(l_mat_gam)),color="blue")+
   geom_vline(data =dat_pred, aes(xintercept = L50_gam), linetype=1, color="red")
@@ -277,10 +321,21 @@ gam_l50_plot = raw_data_plot +
 gam_l50_plot
 ```
 
+![](L50_estimation_for_smooth_curves_files/figure-html/plotgam-1.png)<!-- -->
+
 And we can see that all of the estimates have converged properly, as the optimal criteria is very close to zero for all L50 values:
 
-```{r, eval=TRUE}
+
+```r
 dat_pred$objective
+```
+
+```
+##  [1] 2.003677e-16 2.911857e-13 1.482868e-15 3.066515e-13 2.565255e-16
+##  [6] 2.891587e-13 5.516502e-13 1.116130e-13 5.973890e-13 3.413932e-13
+## [11] 1.505867e-15 1.125319e-13 1.253650e-12 2.042231e-13 1.056623e-15
+## [16] 3.013204e-13 5.914159e-13 2.296293e-13 6.967089e-13 3.142159e-13
+## [21] 2.469956e-16 3.384410e-13 1.117079e-15 3.157200e-13 2.225998e-16
 ```
 
 Note that, as a nonlinear solver, this isn't guaranteed to find an optimimum, and as this function is nonlinear, it's possible to have multiple L50 values!
@@ -301,7 +356,8 @@ Let's demonstrate this:
 
 
 
-```{r gam_l50_sd, eval=TRUE,echo=T}
+
+```r
 dat_pred$L50_gam_sd = 0 #creating an empty value here
 
 #We'll generate 50 random coefficient vectors. This can take a while to run,
@@ -327,7 +383,8 @@ for(i in 1:nrow(dat_pred)){
 
 We can plot the length-at-maturity curves with the 95\% CIs now:
 
-```{r plotgam_sd}
+
+```r
 gam_l50_sd_plot = raw_data_plot +
   geom_line(aes(y=fitted(l_mat_gam)),color="blue")+
   geom_rect(data = dat_pred,
@@ -340,6 +397,8 @@ gam_l50_sd_plot = raw_data_plot +
 
 gam_l50_sd_plot
 ```
+
+![](L50_estimation_for_smooth_curves_files/figure-html/plotgam_sd-1.png)<!-- -->
 
 
 It's likely also possible to calculate the standard deviations with a bit less computing time, using something like the delta method, but I don't have time to dig into the math on that here. 
