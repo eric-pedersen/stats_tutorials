@@ -8,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE,message=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = FALSE,  fig.path = "figures/L50-", dpi = 250)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE,  fig.path = "figures/L50-", dpi = 250)
 ```
 
 This tutorial will focus on how to estimate L50 values for observational fisheries length-at-maturity data when the relationship between length and maturity is more complex than a logistic curve (so simple linear methods of calculating L50 values don't work). 
@@ -471,14 +471,14 @@ I'm also going to use the fact that my computer has several cores to parallize t
 Note that I'm passing it a seed (to make sure the analysis is repeatable) and setting the number of cores. 
 The `use.u` argument specificies that we want to keep the original random effect estimates instead of resampling them. 
 
-```{r glmer_boot_conditional, eval=TRUE,echo=T}
+```{r glmer_boot_conditional,warning= FALSE,  eval=TRUE,echo=T}
 boot_glmer_condtional = bootMer(l_mat_glmer, 
                                 find_l50_lme4, 
                                 use.u = TRUE, 
                                 nsim = 150, 
                                 seed = 2, 
                                 parallel = "multicore", 
-                                ncpus = 4)
+                                ncpus = 6)
 
 
 #we can get the confidence intervals out with the bCI.tab function:
@@ -538,19 +538,19 @@ The procedure is basically the same, except we set `use.u` equal to false.
 If you wanted to get uncertainty estimates for new covariate values, though, keep in mind you'd have to fully re-write the find_l50_lme4 function. 
 In a real analysis, you'd wrap all of this in one bigger function that would let you pass the new covariate values you want CIs for.
 
-```{r glmer_boot_unconditional, eval=TRUE,echo=T}
+```{r glmer_boot_unconditional,warning= FALSE, eval=TRUE,echo=T}
 boot_glmer_uncondtional = bootMer(l_mat_glmer, 
                                 find_l50_lme4, 
                                 use.u = FALSE, 
                                 nsim = 150, 
                                 seed = 2, 
                                 parallel = "multicore", 
-                                ncpus = 4)
+                                ncpus = 6)
 
 
 #we can get the confidence intervals out with the bCI.tab function:
 
-boot_glmer_uncondtional_CI = bCI.tab(boot_glmer_condtional)
+boot_glmer_uncondtional_CI = bCI.tab(boot_glmer_uncondtional)
 
 #we'll add back in the mean length value, so it's on the same scale as the data:
 boot_glmer_uncondtional_CI = boot_glmer_uncondtional_CI + dat_lme4$length_mean[1]
@@ -582,7 +582,10 @@ glmer_unconditional_plot = ggplot(dat_lme4, aes(x = length, y = condition))+
   theme(panel.grid = element_blank())
   
 
-glmer_conditional_plot
+glmer_unconditional_plot
 
 ```
 
+
+Note that the big change is that the CIs are substantially wider. 
+Values at the end of the range still have very tight CIs though. 
