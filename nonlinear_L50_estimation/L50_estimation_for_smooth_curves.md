@@ -95,6 +95,9 @@ For the sample data, the linear R model would be:
 l_mat_linear = glm(condition ~ 1 + length + x + y, data = dat, family=binomial(link = "logit"))
 ```
 
+Estimating L50: the linear approach
+-----------------------------------
+
 For these models, L50 value for a given set of covariates is the the value of `length` that corresponds to ![logit(p)=0](https://latex.codecogs.com/png.latex?logit%28p%29%3D0 "logit(p)=0") when the other covariates are held constant. In a standard GLM model, this can be found by solving a pretty straightforward linear equation:
 
 ![
@@ -168,6 +171,9 @@ quad_l50_plot
 
 This works a fair bit better, but it's still not doing a great job for, e.g. `x=3, y=3`, and going by the blue lines, it seems to be because the estimated logistic curve doesn't capture the true size-at-maturity curve. I could add a quadratic term for length, or a length-location interaction term, but in that case, I couldn't use equation (1) to find the L50 values. In fact, equation (1) only works when we assume that the relationship between length and logit-probability is linear. When we move into the realm of nonlinear relationships, we have to find L50 using nonlinear solvers.
 
+Estimating L50: the nonlinear approach
+--------------------------------------
+
 First, let's fit this model using a GAM:
 
 ``` r
@@ -225,7 +231,7 @@ print(test_l50)
     ## 
     ## $objective
     ##           [,1]
-    ## 1 2.003677e-16
+    ## 1 2.003679e-16
 
 This returns a minimum value (i.e. the L50) and an objective value. If the function is properly minimizing, this will be very close to zero.
 
@@ -266,11 +272,11 @@ And we can see that all of the estimates have converged properly, as the optimal
 dat_pred$objective
 ```
 
-    ##  [1] 2.003677e-16 2.911857e-13 1.482868e-15 3.066515e-13 2.565255e-16
+    ##  [1] 2.003679e-16 2.911857e-13 1.482868e-15 3.066515e-13 2.565257e-16
     ##  [6] 2.891587e-13 5.516502e-13 1.116130e-13 5.973890e-13 3.413932e-13
     ## [11] 1.505867e-15 1.125319e-13 1.253650e-12 2.042231e-13 1.056623e-15
-    ## [16] 3.013204e-13 5.914159e-13 2.296293e-13 6.967089e-13 3.142159e-13
-    ## [21] 2.469956e-16 3.384410e-13 1.117079e-15 3.157200e-13 2.225998e-16
+    ## [16] 3.013204e-13 5.914159e-13 2.296293e-13 6.967090e-13 3.142159e-13
+    ## [21] 2.469959e-16 3.384411e-13 1.117079e-15 3.157200e-13 2.225995e-16
 
 Note that, as a nonlinear solver, this isn't guaranteed to find an optimum, and as this function is nonlinear, it's possible to have multiple L50 values! This should be pretty rare in actual data, but can happen with sampling issues, or when trying extrapolate predicted L50 values for unobserved covariate combinations. Note also that if you give a maximum or minimum value of length outside the range of the data, `gam` will happily give you a linear extrapolation out to whatever length value you give it, and `optimize` will happily try to find L50 values out there. I would be very careful on relying on any L50 predictions outside the range of your data. Note that this can be a problem with the linear estimate of L50 too...
 
@@ -324,6 +330,244 @@ gam_l50_sd_plot
 ![](figures/L50-plotgam_sd-1.png)
 
 It's likely also possible to calculate the standard deviations with a bit less computing time, using something like the delta method, but I don't have time to dig into the math on that here.
+
+Update: applying this approach using lme4
+-----------------------------------------
+
+I got a question about how to calculate L50 values using **lme4**, instead of **mgcv**. The general approach here is conceptually pretty similar to the nonlinear approach described above, but it differs in a few details.
+
+The big difference between **lme4** and **mgcv** here is that **lme4** treats random effects as different from other types of parameters, so it can be difficult to get the same type of variance-covariance matrix. There is also a conceptual issue when estimating uncertainty about the L50 for a random effects model: do we want to know the estimate (and uncertainty) for the L50 value for that particular site (i.e. hold the random effects constant) or for a different site but with similar characteristics (covariates). The first estimate is what you want when when the L50 value for a particular location is of interest (i.e. when random effects are being used as a method to reduce overfitting when you've got a large number of categorical variables, but are still interested in individual random effect values). This might be the case if you are fitting L50 values for fish from a wide range of lakes, and using lake as a random effect to prevent overfit, but still want to make inferences for the observed lakes. The second question is interesting when you want to extrapolate outside of the sample, to make inferences including uncertainty for L50 values for unsampled sites (treating site as a nuisance parameter).
+
+Before we look at either type of uncertainty or estimate, though, we should fit the model of interest. Here I'm going to create some new sample data, where the linear assumption is true, but there is inter-site variation, then use the `glmer` function from **lme4** to fit the new data with a logistic regression:
+
+``` r
+dat_lme4= crossing(x = 1:5,  #x and y occur across a 5x5 grid
+               y = 1:5, 
+               #2 mm length bins, spanning from 10 to 120 mm.
+               length = seq(10,120, by = 2), 
+               #10 replicates at each size bin.
+               rep = 1:10) %>%
+  group_by(x,y)%>% #going to create a random effect for each site (combination of x and y)
+  mutate(
+    site =paste(x,y, sep = "_"),
+    site_intercept = rnorm(1,0,0.2), #intercept drawn from a normal distribution w/ std. dev. of 0.2
+    site_slope  = rnorm(1,0, 0.02), #site-specific slope drawn from a normal dist. w/ std. dev. of 0.02
+    #create values on the link (logit) scale. In this data, maturation is
+    #a linear function of length with site specific intercepts and slopes
+    prob_logit = 2 + (x-3) + (y-3) + site_intercept + (0.1+site_slope)*(length-65),
+    prob = plogis(prob_logit),
+    condition = rbinom(n = n(), prob = prob,size = 1)
+    )%>%
+  ungroup()%>%
+  mutate(    
+    #lme4 often has problems with unscaled variables, so we will center length around its mean value
+    #we will store the mean value of length in case we need to apply that to new data sets in the future
+    length_mean = mean(length),
+    length_centered = length - length_mean)
+    
+
+
+library(lme4)
+```
+
+    ## Loading required package: Matrix
+
+    ## 
+    ## Attaching package: 'Matrix'
+
+    ## The following object is masked from 'package:tidyr':
+    ## 
+    ##     expand
+
+    ## 
+    ## Attaching package: 'lme4'
+
+    ## The following object is masked from 'package:nlme':
+    ## 
+    ##     lmList
+
+``` r
+library(boot) #needed for the bootstrap we'll do after this
+l_mat_glmer = glmer(condition ~ 1 + length_centered + x+y + (1+length_centered| site), 
+                    data = dat_lme4, 
+                    family=binomial(link = "logit"))
+```
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl =
+    ## control$checkConv, : Model failed to converge with max|grad| = 0.00505009
+    ## (tol = 0.001, component 1)
+
+I think it's possible to do something similar to what I did with mgcv for getting model variance-covariance matrices, and calculating the posterior, but it's a lot more complicated than for the **mgcv** case. Instead, I'm going to use a parametric boostrap method. The parametric bootstrap is based on simulating new data multiple times from the fitted model, then re-fitting the model to that simulated data, and extracting the parameter of interest. This will give a range of values that could also have come from the same data (see `?lme4::bootMer` for more information).
+
+### L50 values for glmer models for the same sites (constant random effects)
+
+First we'll look at the case where we're holding the site constant (so only uncertainty in the estimate of the random effects matters, but inter-random effect variability will be propagated).
+
+We have to first write a function that takes a fitted model, and returns our statistic of interest. In this case, the statistic is a vector of L50 values, one for each site in the data. This function has to be self-contained (have no other arguments besides the model), so I am writing it to contain the predicted data that we expect it to have to make the predictions. I'll have to write a few helper functions first, that the final fitting function will call:
+
+``` r
+#This function is a modified version of the above function that works for lme4
+get_lme4_link_sqrt = function(length_centered, covar, model){
+  covar$length_centered = length_centered
+  
+  #this returns the predictions for the model on the link scale 
+  link_pred = predict(model,newdata = covar, type="link") 
+  
+  #Since we're modifying the code to take a vector of predictors, this returns
+  #the sum of squared deviations from zero, instead of just the square deviation
+  #of one value from zero
+  return(sum(as.numeric(link_pred)^2))
+}
+
+find_l50_lme4 = function(model) {
+  #we have to create the test data, which should have a row for every covariate
+  #we want to test
+  dat_pred = crossing(x = 1:5, y = 1:5)%>%
+    mutate(site = paste(x,y, sep="_"))
+  
+  #note: since we're using centered length values here, the lower and upper
+  #bounds have to be adjusted to take that into account!! Here I'm using ad-hoc
+  #values (I know mean length is 55) but this should be adjusted for your data
+  #I'm also initializing the parameter at zero (i.e. the mean length)
+  L50_fit = optim(par = rep(0, times = nrow(dat_pred)), 
+                            get_lme4_link_sqrt,
+                            lower = 0-55, upper = 150-55,
+                    covar = dat_pred, 
+                    model = model,
+                  method = "L-BFGS-B")
+  L50_values = L50_fit$par
+
+  
+  return(L50_values)
+}
+
+#this function will get CI values for all fitted from a bootstrap result.
+#Taken from ?mgcv::bootMer
+bCI.tab = function(b,ind=length(b$t0), type="perc", conf=0.95) {
+        btab0 = t(sapply(as.list(seq(ind)),
+                          function(i)
+            boot::boot.ci(b,index=i,conf=conf, type=type)$percent))
+        
+        btab = btab0[,4:5]
+        btab = cbind(b$t0, btab)
+        
+        colnames(btab) = c("fit", "lower","upper")
+        return(btab)
+}
+```
+
+The final step is to create parametric bootstrap samples from our model. As this takes a really long time (both the model-refitting step and the optimization step are slow here), we're going to keep the number of samples low (~150) but it's probably better to use more bootstrap samples for a real analysis to get a better estimate of the uncertainty. I'm also going to use the fact that my computer has several cores to parallize this a bit. Note that I'm passing it a seed (to make sure the analysis is repeatable) and setting the number of cores. The `use.u` argument specificies that we want to keep the original random effect estimates instead of resampling them.
+
+``` r
+boot_glmer_condtional = bootMer(l_mat_glmer, 
+                                find_l50_lme4, 
+                                use.u = TRUE, 
+                                nsim = 150, 
+                                seed = 2, 
+                                parallel = "multicore", 
+                                ncpus = 6)
+
+
+#we can get the confidence intervals out with the bCI.tab function:
+
+boot_glmer_condtional_CI = bCI.tab(boot_glmer_condtional)
+
+#we'll add back in the mean length value, so it's on the same scale as the data:
+boot_glmer_condtional_CI = boot_glmer_condtional_CI + dat_lme4$length_mean[1]
+
+
+dat_pred_glmer = crossing(x = 1:5, y = 1:5)%>%
+    mutate(site = paste(x,y, sep="_"),
+           length = 0,
+           condition = 0)
+
+dat_pred_glmer_conditional = dat_pred_glmer %>%
+  bind_cols(as_data_frame(boot_glmer_condtional_CI))
+```
+
+Let's see how well this fits the data:
+
+``` r
+glmer_conditional_plot = ggplot(dat_lme4, aes(x = length, y = condition))+ 
+  facet_grid(y~x, labeller = label_both) + 
+  geom_point(size=0.1)+
+  geom_line(aes(y=prob), size=1)+
+  geom_hline(yintercept = 0.5,linetype=2)+
+  geom_vline(data= dat_pred_glmer_conditional, aes(xintercept = fit))+
+  geom_rect(data = dat_pred_glmer_conditional,
+            aes(xmin = lower,
+                xmax = upper,
+                ymin = -Inf,
+                ymax = Inf),
+            fill = "red", 
+            alpha=0.25)+
+  theme_bw()+
+  theme(panel.grid = element_blank())
+  
+
+glmer_conditional_plot
+```
+
+![](figures/L50-plotglmer-1.png)
+
+Note that for values like x=5 / y=5, the confidence interval is very small, and clustered at the bottom of the range. This is implying that the model estimates that the true L50 value is likely below the boundary we set. This is because we picked some pretty unrealistic data for the model, but it does highlight what a boundary effect has on this.
+
+### L50 values for glmer models for new sites (sampling new random effects)
+
+Finally, we'll repeat this with new random effects. Note that this code would likely take a fair bit of adaptation for a real example. This is just a basic demo.
+
+The procedure is basically the same, except we set `use.u` equal to false. If you wanted to get uncertainty estimates for new covariate values, though, keep in mind you'd have to fully re-write the find\_l50\_lme4 function. In a real analysis, you'd wrap all of this in one bigger function that would let you pass the new covariate values you want CIs for.
+
+``` r
+boot_glmer_uncondtional = bootMer(l_mat_glmer, 
+                                find_l50_lme4, 
+                                use.u = FALSE, 
+                                nsim = 150, 
+                                seed = 2, 
+                                parallel = "multicore", 
+                                ncpus = 6)
+
+
+#we can get the confidence intervals out with the bCI.tab function:
+
+boot_glmer_uncondtional_CI = bCI.tab(boot_glmer_uncondtional)
+
+#we'll add back in the mean length value, so it's on the same scale as the data:
+boot_glmer_uncondtional_CI = boot_glmer_uncondtional_CI + dat_lme4$length_mean[1]
+
+
+dat_pred_glmer = crossing(x = 1:5, y = 1:5)%>%
+    mutate(site = paste(x,y, sep="_"),
+           length = 0,
+           condition = 0)
+
+dat_pred_glmer_unconditional = dat_pred_glmer %>%
+  bind_cols(as_data_frame(boot_glmer_uncondtional_CI))
+
+
+glmer_unconditional_plot = ggplot(dat_lme4, aes(x = length, y = condition))+ 
+  facet_grid(y~x, labeller = label_both) + 
+  geom_point(size=0.1)+
+  geom_line(aes(y=prob), size=1)+
+  geom_hline(yintercept = 0.5,linetype=2)+
+  geom_vline(data= dat_pred_glmer_unconditional, aes(xintercept = fit))+
+  geom_rect(data = dat_pred_glmer_unconditional,
+            aes(xmin = lower,
+                xmax = upper,
+                ymin = -Inf,
+                ymax = Inf),
+            fill = "red", 
+            alpha=0.25)+
+  theme_bw()+
+  theme(panel.grid = element_blank())
+  
+
+glmer_unconditional_plot
+```
+
+![](figures/L50-glmer_boot_unconditional-1.png)
+
+Note that the big change is that the CIs are substantially wider. Values at the end of the range still have very tight CIs though.
 
 [1] For more information on using the linear predictor matrix (lpmatrix) to get values from GAMs, see [this blogpost by Gavin Simpson](!https://www.fromthebottomoftheheap.net/2014/06/16/simultaneous-confidence-intervals-for-derivatives/).
 
