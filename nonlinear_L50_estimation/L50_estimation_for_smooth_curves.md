@@ -427,11 +427,11 @@ find_l50_lme4 = function(model) {
   
   #note: since we're using centered length values here, the lower and upper
   #bounds have to be adjusted to take that into account!! Here I'm using ad-hoc
-  #values (I know mean length is 55) but this should be adjusted for your data
+  #values (I know mean length is 65) but this should be adjusted for your data
   #I'm also initializing the parameter at zero (i.e. the mean length)
   L50_fit = optim(par = rep(0, times = nrow(dat_pred)), 
                             get_lme4_link_sqrt,
-                            lower = 0-55, upper = 150-55,
+                            lower = 0-65, upper = 150-65,
                     covar = dat_pred, 
                     model = model,
                   method = "L-BFGS-B")
@@ -510,7 +510,7 @@ glmer_conditional_plot
 
 ![](figures/L50-plotglmer-1.png)
 
-Note that for values like x=5 / y=5, the confidence interval is very small, and clustered at the bottom of the range. This is implying that the model estimates that the true L50 value is likely below the boundary we set. This is because we picked some pretty unrealistic data for the model, but it does highlight what a boundary effect has on this.
+Note that for values like x=5 / y=5, the confidence interval is small, and clustered at the bottom of the range. This is implying that the model estimates that the true L50 value is likely very near the bottom of the boundary we set. This is because we picked some pretty unrealistic data for the model, but it does highlight what a boundary effect has on this.
 
 ### L50 values for glmer models for new sites (sampling new random effects)
 
@@ -567,7 +567,7 @@ glmer_unconditional_plot
 
 ![](figures/L50-glmer_boot_unconditional-1.png)
 
-Note that the big change is that the CIs are substantially wider. Values at the end of the range still have very tight CIs though.
+Note that the big change is that the CIs are substantially wider. Values at the end of the range still have very tight CIs though. Also note that the fitted value is not centered on the CI; this is likely due to the fact that I just used the `t0` statistic for the mean, which is directly drawn from the fitted model (i.e. uses the original random effects to estimate it). Any observeration where the true random effect in the data is large will tend to result in the mean value being toward one side of the CI. Here, we're effectively conditioning on the observed data for the mean, but simulating new random effects for the interval. In an actual data analysis, I would probably use the something like the mean or 50th percentile (median) of the bootstrap replicates as the midpoint; However, this takes long enough to re-run that I'm not going to worry about that for this tutorial.
 
 [1] For more information on using the linear predictor matrix (lpmatrix) to get values from GAMs, see [this blogpost by Gavin Simpson](!https://www.fromthebottomoftheheap.net/2014/06/16/simultaneous-confidence-intervals-for-derivatives/).
 
